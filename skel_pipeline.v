@@ -53,59 +53,87 @@ reg [7:0] dmem_addr;
 reg [31:0] IF_ID_reg;
 
 // ID EX pipeline
+reg [31:0] ID_EX_inst;
 reg ID_EX_wea_register;
 reg ID_EX_wea_dmem;
 reg [1:0] ID_EX_rs1_addr;
 reg [1:0] ID_EX_rs2_addr;
 reg [1:0] ID_EX_rd_addr;
 reg [7:0] ID_EX_offset;
-reg [63:0] ID_EX_rs1_d;
-reg [63:0] ID_EX_rs2_d;
+reg [DATA_WIDTH-1:0] ID_EX_rs1_d;
+reg [DATA_WIDTH-1:0] ID_EX_rs2_d;
 
 // EX MEM pipeline
+reg [31:0] EX_MEM_inst;
 reg EX_MEM_wea_register;
 reg EX_MEM_wea_dmem;
 reg [1:0] EX_MEM_rs1_addr;
 reg [1:0] EX_MEM_rs2_addr;
 reg [1:0] EX_MEM_rd_addr;
 reg [7:0] EX_MEM_offset;
+reg [DATA_WIDTH-1:0] EX_MEM_rs1_d;
+reg [DATA_WIDTH-1:0] EX_MEM_rs2_d;
 reg [7:0] EX_MEM_dmem_addr;
 
 // MEM WB pipeline
+reg [31:0] MEM_WB_inst;
 reg MEM_WB_wea_register;
 reg MEM_WB_wea_dmem;
 reg [1:0] MEM_WB_rs1_addr;
 reg [1:0] MEM_WB_rs2_addr;
 reg [1:0] MEM_WB_rd_addr;
 reg [7:0] MEM_WB_offset;
+reg [DATA_WIDTH-1:0] MEM_WB_rs1_d;
+reg [DATA_WIDTH-1:0] MEM_WB_rs2_d;
 reg [7:0] EX_MEM_dmem_addr;
 
 
-// Modules
+// ------------------------------- Modules ---------------------------------------
 regfile register_file (
     .clk(clk),
     .clr(reset),
     .raddr0(rs1_addr),
     .raddr1(rs2_addr),
-    .waddr(),
-    .wdata(),
+    .waddr(MEM_WB_rd_addr),
+    .wdata(MEM_WB_wea_register),
     .wea(wea_register),
     .rdata0(rs1_d),
     .rdata1(rs2_d)
 );
 
+imem_32x512_v1 imem (
+    .clk(clk), 
+    .din(imem_din), // THIS IS FOR WRITING INSTRUCITONS IN REGISTER INTERFACE? 
+    .addr(PC or imem_addr[8:0]), // NEED MUX BASED ON CMD REGISTER FOR WRITING IN ISNT OR RUNNING CPU
+    .we(imem_we), // NEED MUX BASED ON CMD REGISTER
+    .dout(imem_to_ifid)
+);
+
+dmem_64x256_v1 uut_dmem(
+    .addra(rs1_addr),
+    .addrb(rs2_addr),
+    .clka(clk),
+    .clkb(clk),
+    .dina(EX_MEM_rs1_d or dmem_dina), // MUX THIS FOR CPU FUNCTION AND LOADING IN DATA FROM INTERFACE
+    .dinb(dmem_dinb), // UNUSED FOR NORMAL CPU ATM
+    .douta(rs1_d),
+    .doutb(rs2_d),
+    .wea(EX_MEM_wea_dmem or dmem_wea), // MUX THIS FOR CPU FUNCTION AND LOADING IN DATA FROM INTERFACE
+    .web(dmem_web)  // UNUSED FOR NORMAL CPU ATM
+);
 
 
-// Control Logic
+// ----------------------------- Control Logic ------------------------------------
 always @(*) begin
     pc_next = pc + 1'b1;
     IF_ID_reg_next = imem_to_ifid;
 
-    // Decoder
+    // Decode Stage
     wea_register = 0;
     wea_dmem = 0;
     rd_addr = 0;
     rs1_addr = 0;
+    rs2_addr = 0
     offset = 0;
     case (IF_ID_reg[5:0])
         6'd1 : begin
@@ -127,13 +155,19 @@ always @(*) begin
             wea_dmem = 0;
             rd_addr = 0;
             rs1_addr = 0;
+            rs2_addr = 0;
             offset = 0;
         end
     endcase
 
-    // Execution Unit
-    dmem_addr = (IF_ID_reg[5:0] == 6'd1) ? (ID_EX_rd_addr + ID_EX_offset) : (ID_EX_rs2_addr + ID_EX_offset); // load or store
+    // Execution Stage
+    dmem_addr = (ID_EX_inst[5:0] == 6'd1) ? (ID_EX_rd_addr + ID_EX_offset) : (ID_EX_rs2_addr + ID_EX_offset); // load or store
 
+    // Memory Stage
+    // Write enable generated in decode stage
+
+    // Writeback Stage
+    // RD and reg WE generated in decode stage
 end
 
 always @(posedge clk) begin
@@ -154,18 +188,26 @@ always @(posedge clk) begin
         ID_EX_rs2_d <= rs2_d;
 
         // EX MEM pipeline
-        EX_MM_wea_register <= ID_EX_wea_register;
-        EX_MM_wea_dmem <= ID_EX_wea_dmem;
-        EX_MM_rs1_addr <= ID_EX_rs1_addr;
-        EX_MM_rs2_addr <= ID_EX_rs2_addr;
-        EX_MM_rd_addr <= ID_EX_rd_addr;
-        EX_MM_offset <= ID_EX_offset;
-        EX_MM_rs1_d <= ID_EX_rs1_d;
-        EX_MM_rs2_d <= ID_EX_rs2_d;
+        EX_MEM_wea_register <= ID_EX_wea_register;
+        EX_MEM_wea_dmem <= ID_EX_wea_dmem;
+        EX_MEM_rs1_addr <= ID_EX_rs1_addr;
+        EX_MEM_rs2_addr <= ID_EX_rs2_addr;
+        EX_MEM_rd_addr <= ID_EX_rd_addr;
+        EX_MEM_offset <= ID_EX_offset;
+        EX_MEM_rs1_d <= ID_EX_rs1_d;
+        EX_MEM_rs2_d <= ID_EX_rs2_d;
         EX_MEM_dmem_addr <= dmem_addr;
 
         // MEM WB
-
+        MEM_WB_wea_register <= EX_MEM_wea_register;
+        MEM_WB_wea_dmem <= EX_MEM_wea_dmem;
+        MEM_WB_rs1_addr <= EX_MEM_rs1_addr;
+        MEM_WB_rs2_addr <= EX_MEM_rs2_addr;
+        MEM_WB_rd_addr <= EX_MEM_rd_addr;
+        MEM_WB_offset <= EX_MEM_offset;
+        MEM_WB_rs1_d <= EX_MEM_rs1_d;
+        MEM_WB_rs2_d <= EX_MEM_rs2_d;
+        MEM_WB_dmem_addr <= EX_MEM_dmem_addr;
 
     end
 end
