@@ -1,0 +1,5 @@
+cmd[1] = run pipeline(must be held high)
+cmd[2] = imem addr; 0 = pipeline, 1 = reg_interface
+cmd[3] = imem write enable
+cmd[4] = dmem write enable
+cmd[5] = regfile addr; 0 = pipeline, 1 = reg_interface
