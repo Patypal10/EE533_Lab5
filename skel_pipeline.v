@@ -22,16 +22,16 @@ module skeleton_pipeline #(
       output  [UDP_REG_SRC_WIDTH-1:0]     reg_src_out,
 );
 
-reg [63:0] pc;
-reg [63:0] pc_next
+reg [7:0] pc;
+reg [7:0] pc_next
 
 // -------------------------- Register Mapped Inputs -----------------------
 // software regs
-reg [DATA_WIDTH-1:0] cmd;
+//reg [DATA_WIDTH-1:0] cmd;
 
 // hardware regs
-reg [DATA_WIDTH-1:0] reg1;
-reg [DATA_WIDTH-1:0] reg2;
+//reg [DATA_WIDTH-1:0] reg1;
+//reg [DATA_WIDTH-1:0] reg2;
 
 // ---------------------------- Local connections ---------------------------
 // from IMEM to decoder
@@ -79,54 +79,89 @@ reg [7:0] EX_MEM_dmem_addr;
 reg [31:0] MEM_WB_inst;
 reg MEM_WB_wea_register;
 reg MEM_WB_wea_dmem;
-reg [1:0] MEM_WB_rs1_addr;
-reg [1:0] MEM_WB_rs2_addr;
+//reg [1:0] MEM_WB_rs1_addr; --pbanga --maybe add for debug purposes
+//reg [1:0] MEM_WB_rs2_addr; --pbanga --maybe add for debug purposes
 reg [1:0] MEM_WB_rd_addr;
 reg [7:0] MEM_WB_offset;
-reg [DATA_WIDTH-1:0] MEM_WB_rs1_d;
-reg [DATA_WIDTH-1:0] MEM_WB_rs2_d;
-reg [7:0] EX_MEM_dmem_addr;
+//reg [DATA_WIDTH-1:0] MEM_WB_rs1_d; --pbanga --maybe add for debug purposes
+//reg [DATA_WIDTH-1:0] MEM_WB_rs2_d; --pbanga --maybe add for debug purposes
+//reg [7:0] EX_MEM_dmem_addr;  --pbanga --maybe add for debug purposes
+//PBANGA
+reg [63:0] MEM_WB_dmem_output;
+//reg [63:0] MEM_WB_alu_output; -- to be added next week
 
+////pbanga temp placement here-- move to relevant sections
+reg[31:0] IF_ID_reg_next;
 
+//---------------------wires--------------------------
+wire[1:0] to_reg_rs1_addr, to_reg_rs2_addr;
+
+reg[63:0] MEM_WB_dmem_out_to_regfile;
+
+//wire reg interface
+wire[63:0] from_reginterface_to_reg_rs1, from_reginterface_to_reg_rs2, mem_addr, cmd, input_data, imem_addr;
+
+reg[63:0] dmem_data, rs1_data, rs2_data, imem_data; 
+wire[63:0] dmem_data_wire;
+
+wire[7:0] to_imem_addr;
 // ------------------------------- Modules ---------------------------------------
-regfile register_file (
+//mux between rs1_addr from pipeline or from reg interface
+M2_1 mux2_0 (.D0(rs1_addr[0]), .D1(from_reginterface_to_reg_rs1[0]), .S0(cmd[5]), .O(to_reg_rs1_addr[0]));
+M2_1 mux2_1 (.D0(rs1_addr[1]), .D1(from_reginterface_to_reg_rs1[1]), .S0(cmd[5]), .O(to_reg_rs1_addr[1]));
+
+M2_1 mux2_0 (.D0(rs2_addr[0]), .D1(from_reginterface_to_reg_rs2[0]), .S0(cmd[5]), .O(to_reg_rs2_addr[0]));
+M2_1 mux2_1 (.D0(rs2_addr[1]), .D1(from_reginterface_to_reg_rs2[1]), .S0(cmd[5]), .O(to_reg_rs2_addr[1]));
+
+regfile_64bit register_file (
     .clk(clk),
     .clr(reset),
-    .raddr0(rs1_addr),
-    .raddr1(rs2_addr),
+    .raddr0(to_reg_rs1_addr),
+    .raddr1(to_reg_rs2_addr),
     .waddr(MEM_WB_rd_addr),
-    .wdata(MEM_WB_wea_register),
-    .wea(wea_register),
+    .wdata(MEM_WB_dmem_out_to_regfile),
+    .wea(MEM_WB_wea_register),
     .rdata0(rs1_d),
     .rdata1(rs2_d)
 );
 
+M2_1 mux1_0 (.D0(pc[0]), .D1(imem_addr[0]), .S0(cmd[2]), .O(to_imem_addr[0]));
+M2_1 mux1_1 (.D0(pc[1]), .D1(imem_addr[1]), .S0(cmd[2]), .O(to_imem_addr[1]));
+M2_1 mux1_2 (.D0(pc[2]), .D1(imem_addr[2]), .S0(cmd[2]), .O(to_imem_addr[2]));
+M2_1 mux1_3 (.D0(pc[3]), .D1(imem_addr[3]), .S0(cmd[2]), .O(to_imem_addr[3]));
+M2_1 mux1_4 (.D0(pc[4]), .D1(imem_addr[4]), .S0(cmd[2]), .O(to_imem_addr[4]));
+M2_1 mux1_5 (.D0(pc[5]), .D1(imem_addr[5]), .S0(cmd[2]), .O(to_imem_addr[5]));
+M2_1 mux1_6 (.D0(pc[6]), .D1(imem_addr[6]), .S0(cmd[2]), .O(to_imem_addr[6]));
+M2_1 mux1_7 (.D0(pc[7]), .D1(imem_addr[7]), .S0(cmd[2]), .O(to_imem_addr[7]));
+
 imem_32x512_v1 imem (
     .clk(clk), 
-    .din(imem_din), // THIS IS FOR WRITING INSTRUCITONS IN REGISTER INTERFACE? 
-    .addr(PC or imem_addr[8:0]), // NEED MUX BASED ON CMD REGISTER FOR WRITING IN ISNT OR RUNNING CPU
-    .we(imem_we), // NEED MUX BASED ON CMD REGISTER
+    .din(input_data), // THIS IS FOR WRITING INSTRUCITONS IN REGISTER INTERFACE? 
+    .addr(to_imem_addr), // NEED MUX BASED ON CMD REGISTER FOR WRITING IN ISNT OR RUNNING CPU
+    .we(cmd[3]), // NEED MUX BASED ON CMD REGISTER
     .dout(imem_to_ifid)
 );
 
+//M2_1 mux2_0 (.D0(pc[0]), .D1(imem_addr[0]), .S0(cmd[2]), .O(to_imem_addr[0]));
+
 dmem_64x256_v1 uut_dmem(
-    .addra(rs1_addr),
-    .addrb(rs2_addr),
+    .addrb(mem_addr), // pbanga -- one port to interface with reg on fgpa
+    .addra(EX_MEM_dmem_addr), // pbanga -- second port part of memory
     .clka(clk),
     .clkb(clk),
-    .dina(EX_MEM_rs1_d or dmem_dina), // MUX THIS FOR CPU FUNCTION AND LOADING IN DATA FROM INTERFACE
-    .dinb(dmem_dinb), // UNUSED FOR NORMAL CPU ATM
-    .douta(rs1_d),
-    .doutb(rs2_d),
-    .wea(EX_MEM_wea_dmem or dmem_wea), // MUX THIS FOR CPU FUNCTION AND LOADING IN DATA FROM INTERFACE
-    .web(dmem_web)  // UNUSED FOR NORMAL CPU ATM
+    .dina(EX_MEM_rs2_d), // MUX THIS FOR CPU FUNCTION AND LOADING IN DATA FROM INTERFACE
+    .dinb(input_data), // UNUSED FOR NORMAL CPU ATM pbanga - use this port as reg intrface
+    .douta(from_mem_to_MEM_WB),
+    .doutb(dmem_data_wire),
+    .wea(EX_MEM_wea_dmem), // MUX THIS FOR CPU FUNCTION AND LOADING IN DATA FROM INTERFACE
+    .web(cmd[4])  // UNUSED FOR NORMAL CPU ATM
 );
 
 
 // ----------------------------- Control Logic ------------------------------------
 always @(*) begin
     pc_next = pc + 1'b1;
-    IF_ID_reg_next = imem_to_ifid;
+//    IF_ID_reg_next = imem_to_ifid;
 
     // Decode Stage
     wea_register = 0;
@@ -175,7 +210,7 @@ always @(posedge clk) begin
         pc <= 0;
     end else if (cmd == 64'd1) begin
         pc <= pc_next;
-        IF_ID_reg <= IF_ID_reg_next;
+        IF_ID_reg <= imem_to_ifid;
 
         // ID EX pipeline
         ID_EX_wea_register <= wea_register;
@@ -208,7 +243,13 @@ always @(posedge clk) begin
         MEM_WB_rs1_d <= EX_MEM_rs1_d;
         MEM_WB_rs2_d <= EX_MEM_rs2_d;
         MEM_WB_dmem_addr <= EX_MEM_dmem_addr;
+	MEM_WB_dmem_output <= from_mem_to_MEM_WB;  
 
+//reginterface
+	rs1_data <= rs1_d;
+	rs2_data <= rs2_d;
+  	dmem_data <= dmem_data_wire;
+	imem_data <= IF_ID_reg_next;
     end
 end
 
@@ -220,8 +261,8 @@ generic_regs
       .TAG                 (`IDS_BLOCK_ADDR),          // Tag -- eg. MODULE_TAG
       .REG_ADDR_WIDTH      (`IDS_REG_ADDR_WIDTH),     // Width of block addresses -- eg. MODULE_REG_ADDR_WIDTH
       .NUM_COUNTERS        (0),                 // Number of counters
-      .NUM_SOFTWARE_REGS   (3),                 // Number of sw regs
-      .NUM_HARDWARE_REGS   (3)                  // Number of hw regs
+      .NUM_SOFTWARE_REGS   (6),                 // Number of sw regs
+      .NUM_HARDWARE_REGS   (4)                  // Number of hw regs
    ) module_regs (
       .reg_req_in       (reg_req_in),
       .reg_ack_in       (reg_ack_in),
@@ -242,10 +283,10 @@ generic_regs
       .counter_decrement(),
 
       // --- SW regs interface
-      .software_regs    ({cmd,input_data,mem_addr}),
+      .software_regs    ({cmd, input_data, mem_addr, from_reginterface_to_reg_rs1, from_reginterface_to_reg_rs2, imem_addr}),
 
       // --- HW regs interface
-      .hardware_regs    ({dmem_data, rs2_data, rs1_data}),
+      .hardware_regs    ({dmem_data, rs2_data, rs1_data, imem_data}),
 
       .clk              (clk),
       .reset            (reset)

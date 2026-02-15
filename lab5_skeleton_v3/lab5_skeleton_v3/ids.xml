@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nf:module xmlns:nf="http://www.NetFPGA.org/NF2_register_system" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.NetFPGA.org/NF2_register_system NF2_register_system.xsd ">
+	<nf:name>ids</nf:name>
+	<nf:prefix>ids</nf:prefix>
+	<nf:location>udp</nf:location>
+	<nf:description>Registers for Skeleton Pipelined DPU</nf:description>
+	<nf:blocksize>256</nf:blocksize>
+	<nf:registers>
+
+		<!-- SOFTWARE REGISTERS (5 total) -->
+		<!-- Order {la_read_addr, mem_din_debug[63:32], mem_din_debug[31:0], mem_addr_debug, command_reg} -->
+
+		<nf:register>
+			<nf:name>command_reg</nf:name>
+			<nf:description>Command register - bit[0]=cpu_run_enable, bit[1]=imem_we_debug, bit[2]=dmem_web_debug, bit[3]=debug_mode_select, bit[4]=la_arm, bit[5]=la_reset</nf:description>
+			<nf:type>generic_software32</nf:type>
+		</nf:register>
+		
+		<nf:register>
+			<nf:name>mem_addr_debug</nf:name>
+			<nf:description>Shared debug address: IMEM uses [8:0] (0-511), DMEM port B uses [7:0] (0-255), regfile uses [2:0] (0-7)</nf:description>
+			<nf:type>generic_software32</nf:type>
+		</nf:register>
+		
+		<nf:register>
+			<nf:name>mem_din_debug_lsb</nf:name>
+			<nf:description>memory data input lsb</nf:description>
+			<nf:type>generic_software32</nf:type>
+		</nf:register>
+		
+		<nf:register>
+			<nf:name>mem_din_debug_msb</nf:name>
+			<nf:description>memory data input msb</nf:description>
+			<nf:type>generic_software32</nf:type>
+		</nf:register>
+
+		<nf:register>
+			<nf:name>la_read_addr</nf:name>
+			<nf:description>Logic Analyzer read port</nf:description>
+			<nf:type>generic_software32</nf:type>
+		</nf:register>
+		
+
+
+		<!-- HARDWARE REGISTERS (14 total) -->
+		<!-- Order: {la_data_7, la_data_6, la_data_5, la_data_4, la_data_3, la_data_2, la_data_1, la_data_0, la_status_32b, id_r1_mem_addr[63:32], id_r1_mem_addr[31:0], dmem_doutb[63:32], dmem_doutb[31:0], imem_dout} -->
+
+
+		<nf:register>
+			<nf:name>imem_dout</nf:name>
+			<nf:description>Instruction memory data output</nf:description>
+			<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+		
+		<nf:register>
+			<nf:name>dmem_doutb_lsb</nf:name>
+			<nf:description>data memory output lsb</nf:description>
+			<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+
+
+		<nf:register>
+			<nf:name>dmem_doutb_msb</nf:name>
+			<nf:description>data memory output msb</nf:description>
+			<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+		
+		<nf:register>
+			<nf:name>id_r1_mem_addr_lsb</nf:name>
+			<nf:description>register 1 data output lsb</nf:description>
+			<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+
+		<nf:register>
+			<nf:name>id_r1_mem_addr_msb</nf:name>
+			<nf:description>register 1 data output msb</nf:description>
+			<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+
+		<nf:register>
+    		<nf:name>la_status</nf:name>
+    		<nf:description>LA Status - 000=IDLE, 001=ARMED, 010=CAPTURING, 100=DONE</nf:description>
+    		<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+
+		<nf:register>
+    		<nf:name>la_data_0</nf:name>
+    		<nf:description>LA captured data [31:0]</nf:description>
+    		<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+
+		<nf:register>
+   			<nf:name>la_data_1</nf:name>
+    		<nf:description>LA captured data [63:32]</nf:description>
+    		<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+
+		<nf:register>
+    		<nf:name>la_data_2</nf:name>
+    		<nf:description>LA captured data [95:64]</nf:description>
+    		<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+
+		<nf:register>
+    		<nf:name>la_data_3</nf:name>
+    		<nf:description>LA captured data [127:96]</nf:description>
+    		<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+
+		<nf:register>
+    		<nf:name>la_data_4</nf:name>
+    		<nf:description>LA captured data [159:128]</nf:description>
+    		<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+
+		<nf:register>
+    		<nf:name>la_data_5</nf:name>
+    		<nf:description>LA captured data [191:160]</nf:description>
+   		 <nf:type>generic_hardware32</nf:type>
+		</nf:register>
+
+		<nf:register>
+    		<nf:name>la_data_6</nf:name>
+    		<nf:description>LA captured data [223:192]</nf:description>
+    		<nf:type>generic_hardware32</nf:type>
+		</nf:register>
+
+		<nf:register>
+    		<nf:name>la_data_7</nf:name>
+    		<nf:description>LA captured data [255:224]</nf:description>
+   		 <nf:type>generic_hardware32</nf:type>
+		</nf:register>
+		
+	</nf:registers>
+</nf:module>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
