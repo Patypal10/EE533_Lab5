@@ -1,0 +1,343 @@
+///////////////////////////////////////////////////////////////////////////////
+// vim:set shiftwidth=3 softtabstop=3 expandtab:
+// $Id: module_template 2008-03-13 gac1 $
+//
+// Module: ids.v
+// Project: NF2.1
+// Description: Defines a simple ids module for the user data path.  The
+// modules reads a 64-bit register that contains a pattern to match and
+// counts how many packets match.  The register contents are 7 bytes of
+// pattern and one byte of mask.  The mask bits are set to one for each
+// byte of the pattern that should be included in the mask -- zero bits
+// mean "don't care".
+//
+///////////////////////////////////////////////////////////////////////////////
+`timescale 1ns/1ps
+
+module ids 
+   #(
+      parameter DATA_WIDTH = 64,
+      parameter CTRL_WIDTH = DATA_WIDTH/8,
+      parameter UDP_REG_SRC_WIDTH = 2
+   )
+   (
+      input  [DATA_WIDTH-1:0]             in_data,
+      input  [CTRL_WIDTH-1:0]             in_ctrl,
+      input                               in_wr,
+      output                              in_rdy,
+
+      output [DATA_WIDTH-1:0]             out_data,
+      output [CTRL_WIDTH-1:0]             out_ctrl,
+      output                              out_wr,
+      input                               out_rdy,
+      
+      // --- Register interface
+      input                               reg_req_in,
+      input                               reg_ack_in,
+      input                               reg_rd_wr_L_in,
+      input  [`UDP_REG_ADDR_WIDTH-1:0]    reg_addr_in,
+      input  [`CPCI_NF2_DATA_WIDTH-1:0]   reg_data_in,
+      input  [UDP_REG_SRC_WIDTH-1:0]      reg_src_in,
+
+      output                              reg_req_out,
+      output                              reg_ack_out,
+      output                              reg_rd_wr_L_out,
+      output  [`UDP_REG_ADDR_WIDTH-1:0]   reg_addr_out,
+      output  [`CPCI_NF2_DATA_WIDTH-1:0]  reg_data_out,
+      output  [UDP_REG_SRC_WIDTH-1:0]     reg_src_out,
+
+      // misc
+      input                                reset,
+      input                                clk
+   );
+
+// bypass assignments
+assign out_data      =     in_data;
+assign in_rdy        =     out_rdy;                      //I have bypassed the connections for router
+assign out_ctrl      =     in_ctrl;
+assign out_wr        =     in_wr;
+
+
+//debug wires
+wire           debug, imem_we_debug, dmem_web;                 //The address and data-in signals are common for register, imem and dmem interfaces. Write enable and dout are separate for each.
+wire [31:0]    mem_addr_debug, command_reg, dpu_status;        //The imem and register port1 is muxed using debug to enter debug mode. Ddmem has dedicated portb for debug
+wire [63:0]    mem_din_debug, dmem_doutb;  
+
+//Debug assignments
+assign imem_we_debug    =     command_reg[1];                           // This means we write 0x0a for imem write (include debug signal for muxing)
+assign dmem_web         =     command_reg[2];                           // This means we write 0x0c for dmem write (debug mode not strictly required due to dedicated debug port)
+assign debug            =     command_reg[3];                           // This means we write 0x08 for debug enable
+
+
+// Logic Analyzer Signals
+wire [63:0] 	la_monitor_sig0, la_monitor_sig1, la_monitor_sig2, la_monitor_sig3;     // We can monitor 256 bit with 64 depth. la_status==0(idle), 1(armed) 2(capturing), 4(done) 
+wire [31:0] 	la_read_addr;                                                           // Current trigger is one hot coded with Instruction
+wire [2:0] 	   la_status;
+wire [255:0] 	la_dout;
+wire 		      la_arm, la_reset, la_trigger;
+
+
+// Pipeline Registers
+// IF Stage
+reg [8:0]      pc;                                                      // The code progression is like a data path along the signal route: origin to destination. Just follow the trail to troubleshoot.
+
+// IF stage wires
+wire [31:0]    imem_dout;                                            
+wire [8:0]     imem_addr;
+
+assign         imem_addr = debug? mem_addr_debug[8:0] : pc;             //debug mux
+
+// IF-ID Stage
+reg [31:0]     ifid_instruc;
+
+// ID Stage wires
+wire [63:0]    id_r2_data, id_r1_mem_addr;
+wire [2:0]     id_r1, id_r2, id_r3, id_reg1_addr;                       //Connected with register module
+wire           id_regwe, id_memwe, id_stall;
+
+assign id_r1      =     ifid_instruc[18:16];
+assign id_r2      =     ifid_instruc[14:12];
+assign id_r3      =     ifid_instruc[10:8];
+assign id_regwe   =     ifid_instruc[23];
+assign id_memwe   =     ifid_instruc[27];
+assign id_stall   =     ifid_instruc[30];
+
+
+assign id_reg1_addr  =  debug? mem_addr_debug[2:0] : id_r1;             //debug mux
+
+
+// ID-EX Stage Register
+reg [63:0]     idex_r2_data_reg, idex_r1_mem_addr_reg;                  //The r1 is hardcoded to datain for memory. 
+reg [2:0]      idex_r3_reg;                                             //The r2 is hardcoded to address of memory. (Need to add address computation in the address path using ALU)
+reg            idex_regwe_reg, idex_memwe_reg, idex_stall_reg;
+
+
+// Ex-Mem Stage Registers
+reg [63:0]     exmem_r2_data_reg, exmem_r1_mem_addr_reg;                //Connect to ALU in future
+reg [2:0]      exmem_r3_reg;
+reg            exmem_regwe_reg, exmem_memwe_reg, exmem_stall_reg;
+
+//Mem stage wires
+wire [63:0]    mem_r2_data, mem_r1_mem_addr, mem_dout;                  //mem dataout is directly connected to register write datain. Requires muxing for ALU in future design.
+wire           mem_memwe;
+
+assign mem_r1_mem_addr  =     exmem_r1_mem_addr_reg;                    
+assign mem_r2_data      =     exmem_r2_data_reg;
+assign mem_memwe        =     exmem_memwe_reg;
+
+
+// Mem-WB Stage
+reg [63:0]     memwb_mem_data_reg;
+reg [2:0]      memwb_r3_reg;
+reg            memwb_regwe, memwb_stall_reg;
+
+
+// WB Stage Wires
+wire [63:0]    wb_mem_data;
+wire [2:0]     wb_r3;
+wire           wb_regwe;                
+
+assign wb_mem_data   =        memwb_mem_data_reg;
+assign wb_r3         =        memwb_r3_reg;
+assign wb_regwe      =        memwb_regwe;
+
+
+//stalling and break pointing logic
+reg            user_pipe_overide_prev_reg;              
+wire           pipe_en, user_pipe_en, user_pipe_overide_pulse, user_pipe_overide;                  //stalling logic for both user and instruction control of pipeline
+
+assign user_pipe_en                 =        command_reg[0];                                                               // Enable when user wants to run the pipeline
+assign user_pipe_overide            =        command_reg[30];                                                              // Enable when user wants to overide and enable a stalled pipeline
+assign user_pipe_overide_pulse      =        user_pipe_overide && !user_pipe_overide_prev_reg;        // this pulse is produced every time command_reg[30] is pushed from 0 to 1
+assign pipe_en                      =        user_pipe_overide_pulse || (user_pipe_en && !memwb_stall_reg);                // pulse is used to continue instruction stalled pipeline or single stepping instructions.
+
+
+
+//logic analyser assignments
+assign la_arm                       =        command_reg[4];                           // command_reg=0x10 to arm LA
+assign la_reset                     =        command_reg[5] | reset;                   // command_reg=0x20 to reset LA
+assign la_trigger                   =        ifid_instruc[31];                         // instruction[31] bit is one hot coded for LA trigger
+
+/*                                                                      // Connect the wires to monitor when required
+// LA monitor signals 
+assign la_monitor_sig0     =     {mem_dout, imem_we, 25'b0, mem_addr[5:0]};                          
+assign la_monitor_sig1     =     {3'b0, dmem_wea, 3'b0, dmem_web, la_trigger, 7'b0, dmem_addra[7:0], dmem_addrb[7:0], imem_din};
+assign la_monitor_sig2     =     command_reg[7]? dmem_dinb : dmem_dina;                                
+assign la_monitor_sig3     =     command_reg[7]? dmem_doutb : dmem_douta; 
+*/      
+                          
+assign dpu_status          =     {7'b0, pc, 3'b0, pipe_en, 8'b0, 1'b0, la_status};   // status info - [24:16] - pc | [12] - pipe_en | [2:0] - LA status - can add more status info in future
+
+
+// Instantiate Logic Analyzer
+logic_analyzer_bram la_inst (
+   .monitor_sig0(la_monitor_sig0),
+   .monitor_sig1(la_monitor_sig1),
+   .monitor_sig2(la_monitor_sig2),
+   .monitor_sig3(la_monitor_sig3),
+   .trigger(la_trigger),
+   .arm(la_arm),
+   .la_read_addr(la_read_addr[5:0]),
+   .la_status(la_status),
+   .la_dout(la_dout),
+   .clk(clk),
+   .reset(la_reset)
+);
+
+// Instantiate the Unit Under Test (UUT) - imem
+	imem_32x512_v1 uut_imem (
+		.clk(clk), 
+		.din(mem_din_debug[31:0]),    	//controlled by debug
+		.addr(imem_addr),        	      //muxed for debug
+		.we(imem_we_debug),      	      //controlled by debug
+		.dout(imem_dout)         	      //tapped by debug
+	);
+
+
+regfile_64bit register_file (
+    .clk(clk),
+    .clr(reset),
+    .raddr0(id_reg1_addr),
+    .raddr1(id_r2),
+    .waddr(wb_r3),
+    .wdata(wb_mem_data),
+    .wea(wb_regwe),
+    .rdata0(id_r1_mem_addr),
+    .rdata1(id_r2_data)
+);
+
+
+// Instantiate the dmem	
+	dmem_64x256_v1 uut_dmem(
+	.addra(mem_r1_mem_addr[7:0]),
+	.addrb(mem_addr_debug[7:0]),     //controlled by debug - Port B is for debug
+	.clka(clk),
+	.clkb(clk),
+	.dina(mem_r2_data),
+	.dinb(mem_din_debug),      //controlled by debug
+	.douta(mem_dout),
+	.doutb(dmem_doutb),    //controlled by debug
+	.wea(mem_memwe),
+	.web(dmem_web)         //controlled by debug
+	);
+
+
+always @(posedge clk) begin   
+   if (reset) begin         
+      user_pipe_overide_prev_reg    <=          0;
+      pc                            <=          0;
+	   ifid_instruc                  <=          0;
+      idex_stall_reg                <=          0;
+	   idex_r2_data_reg              <=          0;
+      idex_r1_mem_addr_reg          <=          0;           
+      idex_r3_reg                   <=          0;
+      idex_regwe_reg                <=          0;
+      idex_memwe_reg                <=          0;
+      exmem_stall_reg               <=          0;
+	   exmem_r2_data_reg             <=          0;
+      exmem_r1_mem_addr_reg         <=          0;
+      exmem_r3_reg                  <=          0;
+      exmem_regwe_reg               <=          0;
+      exmem_memwe_reg               <=          0;
+      memwb_stall_reg               <=          0;
+	   memwb_regwe                   <=          0;
+      memwb_r3_reg                  <=          0;
+      memwb_mem_data_reg            <=          0;
+
+      // Add all other registers in the module so they get reset
+   end 
+   else begin       
+      user_pipe_overide_prev_reg    <=          user_pipe_overide;            // these are control registers which update above the pipeline - used to enable or stall pipeline
+
+      if(pipe_en) begin                                                       // this segment updates the pipeline registers
+         pc                         <=          pc + 1;                       // Program counter update
+
+         ifid_instruc               <=          imem_dout;                    // IF-ID stage logic updates
+
+         idex_stall_reg             <=          id_stall;
+         idex_r2_data_reg           <=          id_r2_data;
+         idex_r1_mem_addr_reg       <=          id_r1_mem_addr;           
+         idex_r3_reg                <=          id_r3;
+         idex_regwe_reg             <=          id_regwe;
+         idex_memwe_reg             <=          id_memwe;                     // ID-EX stage logic updates
+
+         exmem_stall_reg            <=          idex_stall_reg; 
+         exmem_r2_data_reg          <=          idex_r2_data_reg;
+         exmem_r1_mem_addr_reg      <=          idex_r1_mem_addr_reg;
+         exmem_r3_reg               <=          idex_r3_reg;
+         exmem_regwe_reg            <=          idex_regwe_reg;
+         exmem_memwe_reg            <=          idex_memwe_reg;               // EX-Mem stage logic updates
+
+         memwb_stall_reg            <=          exmem_stall_reg;
+         memwb_regwe                <=          exmem_regwe_reg;
+         memwb_r3_reg               <=          exmem_r3_reg;
+         memwb_mem_data_reg         <=          mem_dout;                     // Mem-WB stage logic updates
+
+         // add all the registers to be updated only if command[0] active, else values will be held same. 
+      end
+   end
+end
+
+
+
+
+
+ generic_regs
+   #( 
+      .UDP_REG_SRC_WIDTH   (UDP_REG_SRC_WIDTH),
+      .TAG                 (`IDS_BLOCK_ADDR),          // Tag -- eg. MODULE_TAG
+      .REG_ADDR_WIDTH      (`IDS_REG_ADDR_WIDTH),     // Width of block addresses -- eg. MODULE_REG_ADDR_WIDTH
+      .NUM_COUNTERS        (0),                 // Number of counters
+      .NUM_SOFTWARE_REGS   (5),                 // Number of sw regs
+      .NUM_HARDWARE_REGS   (14)                  // Number of hw regs
+   ) module_regs (
+      .reg_req_in       (reg_req_in),
+      .reg_ack_in       (reg_ack_in),
+      .reg_rd_wr_L_in   (reg_rd_wr_L_in),
+      .reg_addr_in      (reg_addr_in),
+      .reg_data_in      (reg_data_in),
+      .reg_src_in       (reg_src_in),
+
+      .reg_req_out      (reg_req_out),
+      .reg_ack_out      (reg_ack_out),
+      .reg_rd_wr_L_out  (reg_rd_wr_L_out),
+      .reg_addr_out     (reg_addr_out),
+      .reg_data_out     (reg_data_out),
+      .reg_src_out      (reg_src_out),
+
+      // --- counters interface
+      .counter_updates  (),
+      .counter_decrement(),
+
+      // --- SW regs interface
+      .software_regs    ({ 
+                           la_read_addr,   
+                           mem_din_debug[63:32], 
+                           mem_din_debug[31:0], 
+                           mem_addr_debug, 
+                           command_reg
+                           }),
+
+      // --- HW regs interface
+      .hardware_regs    ({
+                           la_dout[255:224],   // la_data_7
+                           la_dout[223:192],   // la_data_6
+                           la_dout[191:160],   // la_data_5
+                           la_dout[159:128],   // la_data_4
+                           la_dout[127:96],    // la_data_3
+                           la_dout[95:64],     // la_data_2
+                           la_dout[63:32],     // la_data_1
+                           la_dout[31:0],      // la_data_0
+                           dpu_status,       //  status info - [24:16] - pc | [12] - pipe_en | [2:0] - LA status - can add more status info in future
+                           id_r1_mem_addr[63:32], 
+                           id_r1_mem_addr[31:0], 
+                           dmem_doutb[63:32], 
+                           dmem_doutb[31:0], 
+                           imem_dout
+                        }),
+
+      .clk              (clk),
+      .reset            (reset)
+    );
+
+endmodule
